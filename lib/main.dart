@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:http/http.dart' as http;
 import 'package:html/parser.dart' as html_parser;
 
@@ -68,6 +70,22 @@ class _ChatScreenState extends State<ChatScreen> {
   bool webEnabled = true;
   bool apiMode = false;
   int selectedApi = 0;
+  bool lightTheme = false;
+  bool hapticsEnabled = true;
+  bool enterToSend = true;
+  bool saveHistory = true;
+  bool hidePreviews = false;
+  bool notificationsEnabled = true;
+  bool announcementsEnabled = true;
+  bool autoScroll = true;
+  bool showSearchSnippets = true;
+  double textScale = 1.0;
+  static const Color _darkBg = Color(0xFF0B0D16);
+  static const Color _lightBg = Color(0xFFF4F5FA);
+  Color get pageBg => lightTheme ? _lightBg : _darkBg;
+  Color get panelBg => lightTheme ? Colors.white : const Color(0xFF191D2D);
+  Color get barBg => lightTheme ? const Color(0xFFE9EAF2) : const Color(0xFF101321);
+  Color get mainText => lightTheme ? const Color(0xFF171827) : Colors.white;
 
   static const blocked = ['إباحية', 'صور إباحية', 'porn', 'xxx', 'استغلال جنسي للأطفال'];
 
@@ -75,6 +93,164 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _loadProfiles();
+    _loadPreferences();
+  }
+
+  Future<void> _loadPreferences() async {
+    final p = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      lightTheme = p.getBool('lightTheme') ?? false;
+      hapticsEnabled = p.getBool('hapticsEnabled') ?? true;
+      enterToSend = p.getBool('enterToSend') ?? true;
+      saveHistory = p.getBool('saveHistory') ?? true;
+      hidePreviews = p.getBool('hidePreviews') ?? false;
+      notificationsEnabled = p.getBool('notificationsEnabled') ?? true;
+      announcementsEnabled = p.getBool('announcementsEnabled') ?? true;
+      autoScroll = p.getBool('autoScroll') ?? true;
+      showSearchSnippets = p.getBool('showSearchSnippets') ?? true;
+      textScale = p.getDouble('textScale') ?? 1.0;
+    });
+  }
+
+  Future<void> _setPref(String key, Object value) async {
+    final p = await SharedPreferences.getInstance();
+    if (value is bool) await p.setBool(key, value);
+    if (value is double) await p.setDouble(key, value);
+  }
+
+  Future<void> _openSettingsSheet(String title) async {
+    await showModalBottomSheet<void>(
+      context: context, isScrollControlled: true, backgroundColor: panelBg,
+      builder: (sheetContext) => StatefulBuilder(builder: (context, refreshSheet) {
+        Widget toggle(String label, String subtitle, bool value, String key, void Function(bool) update) {
+          return SwitchListTile(
+            contentPadding: EdgeInsets.zero, title: Text(label, style: TextStyle(color: mainText)),
+            subtitle: Text(subtitle, style: TextStyle(color: mainText.withOpacity(.62))),
+            value: value,
+            onChanged: (v) async { setState(() => update(v)); await _setPref(key, v); refreshSheet(() {}); },
+          );
+        }
+        final isPrivacy = title == 'الخصوصية';
+        final isAppearance = title == 'المظهر';
+        final isNotifications = title == 'الإشعارات';
+        return SafeArea(child: Padding(
+          padding: EdgeInsets.fromLTRB(20, 18, 20, 24 + MediaQuery.of(context).viewInsets.bottom),
+          child: SingleChildScrollView(child: Column(
+            mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(title, style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: mainText)),
+              const SizedBox(height: 14),
+              if (isPrivacy) ...[
+                toggle('حفظ سجل المحادثات', 'عند إيقافه لا يُحتفظ بالرسائل بعد إغلاق التطبيق', saveHistory, 'saveHistory', (v) => saveHistory = v),
+                toggle('إخفاء معاينة الرسائل', 'إخفاء نص الرسائل من شاشة التطبيق عند تفعيل الخيار', hidePreviews, 'hidePreviews', (v) => hidePreviews = v),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final ok = await showDialog<bool>(context: context, builder: (d) => AlertDialog(
+                      title: const Text('مسح المحادثة؟'),
+                      content: const Text('سيتم حذف الرسائل الظاهرة حالياً.'),
+                      actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('إلغاء')),
+                        FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('مسح'))],
+                    ));
+                    if (ok == true && mounted) {
+                      setState(() { messages.clear(); messages.add(const ChatMessage('تم مسح سجل المحادثة.')); });
+                      Navigator.pop(sheetContext);
+                    }
+                  },
+                  icon: const Icon(Icons.delete_outline), label: const Text('مسح المحادثة الحالية')),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final ok = await showDialog<bool>(context: context, builder: (d) => AlertDialog(
+                      title: const Text('حذف جميع مفاتيح API؟'),
+                      content: const Text('سيتم حذف الاتصالات المحفوظة محلياً بشكل نهائي.'),
+                      actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('إلغاء')),
+                        FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('حذف الكل'))],
+                    ));
+                    if (ok == true) {
+                      setState(() { profiles.clear(); selectedApi = 0; });
+                      await _secure.delete(key: 'nexvora_api_profiles');
+                      if (mounted) Navigator.pop(sheetContext);
+                    }
+                  },
+                  icon: const Icon(Icons.key_off), label: const Text('حذف مفاتيح API المحفوظة')),
+                const Padding(padding: EdgeInsets.only(top: 8), child: Text('مفاتيح API تحفظ على هذا الجهاز بتخزين آمن. إرسال السؤال إلى مزود خارجي يعني أن نص السؤال يصل إلى ذلك المزود.', style: TextStyle(fontSize: 12, color: Colors.grey))),
+              ],
+              if (title == 'الإعدادات') ...[
+                toggle('الإرسال بزر Enter', 'إرسال الرسالة عند الضغط على Enter', enterToSend, 'enterToSend', (v) => enterToSend = v),
+                toggle('التمرير التلقائي', 'الانتقال إلى أحدث رسالة بعد الرد', autoScroll, 'autoScroll', (v) => autoScroll = v),
+                toggle('الاهتزاز اللمسي', 'اهتزاز خفيف عند إرسال رسالة', hapticsEnabled, 'hapticsEnabled', (v) => hapticsEnabled = v),
+                toggle('إظهار مقتطفات البحث', 'عرض وصف مختصر أسفل نتيجة البحث', showSearchSnippets, 'showSearchSnippets', (v) => showSearchSnippets = v),
+              ],
+              if (isAppearance) ...[
+                RadioListTile<bool>(contentPadding: EdgeInsets.zero, title: Text('المظهر الداكن', style: TextStyle(color: mainText)), value: false, groupValue: lightTheme, onChanged: (v) async { setState(() => lightTheme = v!); await _setPref('lightTheme', false); refreshSheet(() {}); }),
+                RadioListTile<bool>(contentPadding: EdgeInsets.zero, title: Text('المظهر الفاتح', style: TextStyle(color: mainText)), value: true, groupValue: lightTheme, onChanged: (v) async { setState(() => lightTheme = v!); await _setPref('lightTheme', true); refreshSheet(() {}); }),
+                const SizedBox(height: 10),
+                Text('حجم النص: ${textScale.toStringAsFixed(1)}x', style: TextStyle(color: mainText)),
+                Slider(value: textScale, min: .85, max: 1.4, divisions: 11, label: textScale.toStringAsFixed(1),
+                  onChanged: (v) async { setState(() => textScale = v); await _setPref('textScale', v); refreshSheet(() {}); }),
+              ],
+              if (isNotifications) ...[
+                toggle('تنبيهات داخل التطبيق', 'إظهار رسائل الحالة والتنبيهات أثناء استخدام التطبيق', notificationsEnabled, 'notificationsEnabled', (v) => notificationsEnabled = v),
+                toggle('إعلانات وإشعارات التحديثات', 'السماح بعرض تنبيه عند توفر معلومات تحديث', announcementsEnabled, 'announcementsEnabled', (v) => announcementsEnabled = v),
+                const Padding(padding: EdgeInsets.only(top: 8), child: Text('هذه إعدادات تنبيهات داخل التطبيق. إشعارات النظام أثناء إغلاق التطبيق تحتاج خدمة إشعارات منفصلة.', style: TextStyle(fontSize: 12, color: Colors.grey))),
+              ],
+            ],
+          )),
+        ));
+      }),
+    );
+  }
+
+  Future<void> _showUpdates() async {
+    showDialog(context: context, barrierDismissible: false, builder: (_) =>
+      const AlertDialog(content: Row(children: [CircularProgressIndicator(), SizedBox(width: 16), Text('جارٍ التحقق من التحديثات...')])));
+    String result;
+    String url = 'https://github.com/oo9ee9-cpu/nexvora-ai/actions';
+    try {
+      final response = await http.get(Uri.parse('https://api.github.com/repos/oo9ee9-cpu/nexvora-ai/actions/runs?per_page=1'))
+        .timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final runs = data['workflow_runs'] as List? ?? [];
+        if (runs.isEmpty) {
+          result = 'لم يتم العثور على عمليات بناء بعد.';
+        } else {
+          final latest = runs.first;
+          url = latest['html_url'] ?? url;
+          final status = latest['status'];
+          final conclusion = latest['conclusion'];
+          result = status == 'completed'
+            ? (conclusion == 'success' ? 'آخر عملية بناء اكتملت بنجاح. يمكنك فتح GitHub لتنزيل APK من قسم Artifacts.' : 'آخر عملية بناء انتهت بالحالة: $conclusion')
+            : 'عملية البناء الأخيرة ما زالت قيد التنفيذ.';
+        }
+      } else {
+        result = 'تعذر التحقق الآن. يمكنك فتح صفحة التحديثات على GitHub.';
+      }
+    } catch (_) {
+      result = 'تعذر الاتصال بخدمة التحديثات. تحقق من الإنترنت وحاول مرة أخرى.';
+    }
+    if (!mounted) return;
+    Navigator.pop(context);
+    showDialog(context: context, builder: (_) => AlertDialog(
+      title: const Text('التحديثات'),
+      content: Text(result),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('إغلاق')),
+        FilledButton(onPressed: () async {
+          Navigator.pop(context);
+          await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+        }, child: const Text('فتح صفحة GitHub')),
+      ],
+    ));
+  }
+
+  void _showAbout(String title) {
+    showDialog(context: context, builder: (_) => AlertDialog(
+      title: Text(title),
+      content: const Text('NEXVORA AI\\nالإصدار 1.0.3\\nالمطور: حيدر.\\nصُنع بشغف لخدمة المستخدمين.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('إغلاق'))],
+    ));
   }
 
   Future<void> _loadProfiles() async {
@@ -402,7 +578,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     return Directionality(textDirection: TextDirection.rtl, child: Scaffold(
       drawer: Drawer(
-        backgroundColor: const Color(0xFF141827),
+        backgroundColor: lightTheme ? const Color(0xFFF0F1F7) : const Color(0xFF141827),
         child: SafeArea(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           const Padding(padding: EdgeInsets.all(20), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Icon(Icons.auto_awesome, size: 42, color: Color(0xFF38D9C5)),
@@ -413,7 +589,7 @@ class _ChatScreenState extends State<ChatScreen> {
           for (final item in [
             ['تخصيص', Icons.tune], ['الخصوصية', Icons.shield_outlined],
             ['الإعدادات', Icons.settings_outlined], ['المظهر', Icons.palette_outlined],
-            ['شعارات', Icons.campaign_outlined], ['الإصدار', Icons.info_outline],
+            ['الإشعارات', Icons.notifications_outlined], ['الإصدار', Icons.info_outline],
             ['التحديثات', Icons.system_update_alt], ['حول التطبيق', Icons.help_outline],
           ])
             ListTile(leading: Icon(item[1] as IconData, color: const Color(0xFF38D9C5)),
@@ -421,7 +597,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ])),
       ),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF101321),
+        backgroundColor: barBg,
         leading: Builder(builder: (context) => IconButton(
           icon: const Icon(Icons.menu), onPressed: () => Scaffold.of(context).openDrawer())),
         title: Row(children: [
@@ -446,7 +622,7 @@ class _ChatScreenState extends State<ChatScreen> {
       body: Column(children: [
         Container(
           margin: const EdgeInsets.fromLTRB(16, 14, 16, 8), padding: const EdgeInsets.all(13),
-          decoration: BoxDecoration(color: const Color(0xFF171A29), borderRadius: BorderRadius.circular(16),
+          decoration: BoxDecoration(color: panelBg, borderRadius: BorderRadius.circular(16),
             border: Border.all(color: Colors.white.withOpacity(.06))),
           child: Row(children: [
             const Icon(Icons.bolt, color: Color(0xFF38D9C5), size: 19),
@@ -484,7 +660,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       Icon(Icons.public, size: 13, color: Color(0xFF38D9C5)),
                       SizedBox(width: 5), Text('بحث الويب', style: TextStyle(fontSize: 11, color: Color(0xFF38D9C5))),
                     ])),
-                  SelectableText(m.text, style: const TextStyle(fontSize: 14, height: 1.65, color: Colors.white)),
+                  SelectableText(hidePreviews && !m.user ? '••••••••••' : m.text, style: TextStyle(fontSize: 14 * textScale, height: 1.65, color: mainText)),
                 ]),
               ),
             );
@@ -496,12 +672,12 @@ class _ChatScreenState extends State<ChatScreen> {
             border: Border(top: BorderSide(color: Color(0x1FFFFFFF)))),
           child: Row(children: [
             Expanded(child: Container(
-              decoration: BoxDecoration(color: const Color(0xFF1B1E2D), borderRadius: BorderRadius.circular(25)),
+              decoration: BoxDecoration(color: lightTheme ? const Color(0xFFE6E7EF) : const Color(0xFF1B1E2D), borderRadius: BorderRadius.circular(25)),
               child: TextField(
                 controller: controller, minLines: 1, maxLines: 5,
-                textInputAction: TextInputAction.send, onSubmitted: (_) => send(),
+                textInputAction: enterToSend ? TextInputAction.send : TextInputAction.newline, onSubmitted: (_) { if (enterToSend) send(); },
                 decoration: const InputDecoration(
-                  hintText: 'اكتب رسالتك...', hintStyle: TextStyle(color: Colors.white38, fontSize: 13),
+                  hintText: 'اكتب رسالتك...', hintStyle: TextStyle(color: lightTheme ? Colors.black38 : Colors.white38, fontSize: 13),
                   border: InputBorder.none, contentPadding: EdgeInsets.symmetric(horizontal: 18, vertical: 13)),
               ),
             )),
