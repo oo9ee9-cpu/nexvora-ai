@@ -219,10 +219,10 @@ class IncrementalProjectGenerator {
       onProgress?.call(progress);
       return progress;
     } catch (error) {
-      final updatedTasks = [...memory.fileTasks];
+      final updatedTasks = [...memory!.fileTasks];
       updatedTasks[nextIndex] = updatedTasks[nextIndex].copyWith(
         status: ProjectFileStatus.failed, error: error.toString(), updatedAt: DateTime.now());
-      memory = memory.copyWith(fileTasks: updatedTasks);
+      memory = memory!.copyWith(fileTasks: updatedTasks);
       await memoryService.save(memory);
       final progress = GenerationProgress(projectId: projectId, currentFile: task.path,
         completed: completed, total: updatedTasks.length, finished: false, error: error.toString());
