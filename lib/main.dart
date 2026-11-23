@@ -524,13 +524,18 @@ class _ChatScreenState extends State<ChatScreen> {
   void openDrawerPage(String title) {
     Navigator.pop(context);
     if (title == 'تخصيص') { openCustomization(); return; }
-    showDialog(context: context, builder: (_) => AlertDialog(
-      backgroundColor: const Color(0xFF191D2D), title: Text(title),
-      content: Text(title == 'حول التطبيق'
-        ? 'NEXVORA AI\nمساعدك الذكي. المطور: حيدر.'
-        : 'قسم $title — ستتوفر إعداداته في تحديث لاحق.'),
-      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('إغلاق'))],
-    ));
+    if (['الخصوصية', 'الإعدادات', 'المظهر', 'الإشعارات'].contains(title)) {
+      _openSettingsSheet(title); return;
+    }
+    if (title == 'التحديثات') { _showUpdates(); return; }
+    if (title == 'الإصدار' || title == 'حول التطبيق') { _showAbout(title); return; }
+    if (title == 'الشعارات') {
+      showDialog(context: context, builder: (_) => AlertDialog(
+        title: const Text('الشعارات'),
+        content: const Text('NEXVORA AI\n✨ ذكاء أقرب إليك.\nالمطور: حيدر.'),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('إغلاق'))],
+      ));
+    }
   }
 
   Future<void> send() async {
@@ -668,7 +673,7 @@ class _ChatScreenState extends State<ChatScreen> {
         )),
         SafeArea(top: false, child: Container(
           padding: const EdgeInsets.fromLTRB(13, 10, 13, 10),
-          decoration: const BoxDecoration(color: Color(0xFF101321),
+          decoration: BoxDecoration(color: barBg,
             border: Border(top: BorderSide(color: Color(0x1FFFFFFF)))),
           child: Row(children: [
             Expanded(child: Container(
