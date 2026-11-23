@@ -175,7 +175,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<String> askApi(String prompt) async {
     if (profiles.isEmpty) throw Exception('أضف مفتاح API من القائمة الجانبية أولاً.');
-    final profile = profiles[selectedApi.clamp(0, profiles.length - 1)];
+    final profile = profiles[selectedApi.clamp(0, profiles.length - 1).toInt()];
     final uri = Uri.tryParse(profile.endpoint);
     if (uri == null || !uri.hasScheme || profile.key.trim().isEmpty || profile.model.trim().isEmpty) {
       throw Exception('تحقق من رابط API والمفتاح واسم النموذج في تخصيص.');
@@ -254,7 +254,7 @@ class _ChatScreenState extends State<ChatScreen> {
         } else {
           profiles[editIndex] = profile;
         }
-        selectedApi = (editIndex ?? profiles.length - 1).clamp(0, profiles.isEmpty ? 0 : profiles.length - 1);
+        selectedApi = (editIndex ?? profiles.length - 1).clamp(0, profiles.isEmpty ? 0 : profiles.length - 1).toInt();
       });
       await _saveProfiles();
     }
@@ -293,7 +293,7 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
             if (profiles.isNotEmpty) DropdownButtonFormField<int>(
-              value: selectedApi.clamp(0, profiles.length - 1),
+              value: selectedApi.clamp(0, profiles.length - 1).toInt(),
               decoration: const InputDecoration(labelText: 'المزود النشط'),
               items: profiles.asMap().entries.map((e) =>
                 DropdownMenuItem(value: e.key, child: Text('${e.value.name} — ${e.value.model}'))).toList(),
