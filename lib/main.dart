@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:html/parser.dart' as html_parser;
 
 void main() => runApp(const NexvoraApp());
 
@@ -50,39 +51,38 @@ class _ChatScreenState extends State<ChatScreen> {
     return blocked.any((word) => s.contains(word));
   }
 
-  Future<String?> searchWeb(String query) async {
-    try {
-      final uri = Uri.https('api.duckduckgo.com', '/', {
-        'q': query, 'format': 'json', 'no_html': '1', 'skip_disambig': '1'
-      });
-      final response = await http.get(uri).timeout(const Duration(seconds: 12));
-      if (response.statusCode != 200) return null;
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final parts = <String>[];
-      final abstract = data['AbstractText']?.toString() ?? '';
-      if (abstract.isNotEmpty) parts.add(abstract);
-      final related = data['RelatedTopics'];
-      if (related is List) {
-        for (final item in related) {
-          if (item is Map && item['Text'] != null) {
-            parts.add(item['Text'].toString());
-            if (parts.length >= 4) break;
-          }
-        }
+  Future<String> searchWeb(String query) async {
+    final uri = Uri.https('html.duckduckgo.com', '/html/', {'q': query});
+    final response = await http.get(uri, headers: {
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml',
+    }).timeout(const Duration(seconds: 20));
+    if (response.statusCode != 200) {
+      throw Exception('تعذر الوصول إلى محرك البحث (${response.statusCode})');
+    }
+    final document = html_parser.parse(utf8.decode(response.bodyBytes));
+    final links = document.querySelectorAll('a.result__a');
+    final results = <String>[];
+    for (final link in links) {
+      final title = link.text.trim();
+      var href = link.attributes['href'] ?? '';
+      if (title.isEmpty || href.isEmpty) continue;
+      final parsed = Uri.tryParse(href);
+      if (parsed != null && parsed.queryParameters.containsKey('uddg')) {
+        href = parsed.queryParameters['uddg'] ?? href;
+      } else if (href.startsWith('//')) {
+        href = 'https:' + href;
       }
-      return parts.isEmpty ? null : parts.join('\n\n');
-    } catch (_) { return null; }
-  }
-
-  String localAnswer(String q) {
-    final s = q.toLowerCase();
-    if (s.contains('من أنت') || s.contains('من انت') || s.contains('اسمك')) {
-      return 'أنا NEXVORA AI، مساعد محادثة تجريبي يضم أدوات داخلية للرد والبحث والفلترة ومساعدة البرمجة.';
+      final snippet = link.parent?.parent?.querySelector('.result__snippet')?.text.trim() ?? '';
+      if (href.startsWith('http')) {
+        results.add('${results.length + 1}. $title\n$snippet\n$href');
+      }
+      if (results.length >= 6) break;
     }
-    if (s.contains('flutter') || s.contains('برمج') || s.contains('كود')) {
-      return 'أستطيع مساعدتك في البرمجة وشرح الأخطاء وكتابة أمثلة. أرسل الكود أو رسالة الخطأ كاملة وسأحللها لك.';
+    if (results.isEmpty) {
+      return 'لم يعثر البحث على نتائج واضحة لهذا السؤال. جرّب صياغته بكلمات مختلفة.';
     }
-    return 'وصلني سؤالك. لم أجد إجابة محلية موثوقة له. يمكنك تفعيل البحث عبر الإنترنت أو إضافة مزوّد ذكاء اصطناعي عبر خادم آمن للحصول على إجابات توليدية متقدمة.';
+    return 'هذه نتائج البحث على الإنترنت:\n\n${results.join('\n\n')}\n\nالإجابة مبنية على مقتطفات نتائج البحث؛ افتح الروابط للتحقق من التفاصيل الكاملة.';
   }
 
   Future<void> send() async {
@@ -97,15 +97,13 @@ class _ChatScreenState extends State<ChatScreen> {
     String answer;
     bool usedWeb = false;
     if (isBlocked(text)) {
-      answer = 'لا أستطيع المساعدة في هذا النوع من المحتوى. يمكنني مساعدتك بمعلومات آمنة وبديلة.';
+      answer = 'لا أستطيع المساعدة في هذا النوع من المحتوى. يمكنني البحث عن معلومات آمنة وبديلة.';
     } else {
-      answer = localAnswer(text);
-      if (webEnabled) {
-        final result = await searchWeb(text);
-        if (result != null && result.isNotEmpty) {
-          answer = 'نتائج بحث أولية من الويب:\n\n$result\n\nملاحظة: تحقّق من المصادر الأصلية؛ خدمة البحث قد لا تعرض نتائج لكل سؤال.';
-          usedWeb = true;
-        }
+      try {
+        answer = await searchWeb(text);
+        usedWeb = answer.startsWith('هذه نتائج البحث');
+      } catch (e) {
+        answer = 'تعذر تنفيذ البحث الآن. تحقق من اتصال الإنترنت وحاول مرة أخرى.\n\n$e';
       }
     }
     if (!mounted) return;
@@ -165,7 +163,7 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Row(children: [
             const Icon(Icons.bolt, color: Color(0xFF38D9C5), size: 19),
             const SizedBox(width: 8),
-            Expanded(child: Text(webEnabled ? 'البحث مفعّل • أدوات المساعدة جاهزة' : 'وضع المحادثة • البحث متوقف',
+            Expanded(child: Text(webEnabled ? 'الإجابة من نتائج البحث على الإنترنت' : 'الإجابة من نتائج البحث على الإنترنت',
               style: const TextStyle(fontSize: 12, color: Colors.white70))),
             Container(width: 7, height: 7, decoration: const BoxDecoration(
               color: Color(0xFF38D9C5), shape: BoxShape.circle)),
@@ -218,7 +216,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 controller: controller, minLines: 1, maxLines: 5,
                 textInputAction: TextInputAction.send, onSubmitted: (_) => send(),
                 decoration: const InputDecoration(
-                  hintText: 'اكتب رسالتك هنا...', hintStyle: TextStyle(color: Colors.white38, fontSize: 13),
+                  hintText: 'اكتب سؤالك للبحث...', hintStyle: TextStyle(color: Colors.white38, fontSize: 13),
                   border: InputBorder.none, contentPadding: EdgeInsets.symmetric(horizontal: 18, vertical: 13)),
               ),
             )),
