@@ -29,6 +29,13 @@ class ChatMessage {
   const ChatMessage(this.text, {this.user = false, this.web = false});
 }
 
+class SearchResult {
+  final String title;
+  final String snippet;
+  final String url;
+  const SearchResult(this.title, this.snippet, this.url);
+}
+
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
   @override
@@ -39,7 +46,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final controller = TextEditingController();
   final scroll = ScrollController();
   final messages = <ChatMessage>[
-    const ChatMessage('مرحباً! أنا NEXVORA AI. اسألني عمّا تريد، ويمكنني البحث على الإنترنت ومساعدتك في البرمجة.')
+    const ChatMessage('مرحباً! أنا NEXVORA AI. أبحث لك مباشرة عبر الإنترنت وأعرض روابط المصادر.')
   ];
   bool busy = false;
   bool webEnabled = true;
@@ -51,38 +58,79 @@ class _ChatScreenState extends State<ChatScreen> {
     return blocked.any((word) => s.contains(word));
   }
 
-  Future<String> searchWeb(String query) async {
+  Future<List<SearchResult>> _searchDuckDuckGo(String query) async {
     final uri = Uri.https('html.duckduckgo.com', '/html/', {'q': query});
     final response = await http.get(uri, headers: {
       'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36',
       'Accept': 'text/html,application/xhtml+xml',
-    }).timeout(const Duration(seconds: 20));
-    if (response.statusCode != 200) {
-      throw Exception('تعذر الوصول إلى محرك البحث (${response.statusCode})');
-    }
-    final document = html_parser.parse(utf8.decode(response.bodyBytes));
-    final links = document.querySelectorAll('a.result__a');
-    final results = <String>[];
-    for (final link in links) {
-      final title = link.text.trim();
-      var href = link.attributes['href'] ?? '';
-      if (title.isEmpty || href.isEmpty) continue;
+    }).timeout(const Duration(seconds: 15));
+    if (response.statusCode != 200) throw Exception('DuckDuckGo: HTTP ${response.statusCode}');
+    final doc = html_parser.parse(utf8.decode(response.bodyBytes));
+    final output = <SearchResult>[];
+    for (final item in doc.querySelectorAll('.result')) {
+      final link = item.querySelector('a.result__a');
+      final title = link?.text.trim() ?? '';
+      var href = link?.attributes['href'] ?? '';
       final parsed = Uri.tryParse(href);
       if (parsed != null && parsed.queryParameters.containsKey('uddg')) {
         href = parsed.queryParameters['uddg'] ?? href;
       } else if (href.startsWith('//')) {
-        href = 'https:' + href;
+        href = 'https:$href';
       }
-      final snippet = link.parent?.parent?.querySelector('.result__snippet')?.text.trim() ?? '';
-      if (href.startsWith('http')) {
-        results.add('${results.length + 1}. $title\n$snippet\n$href');
+      final snippet = item.querySelector('.result__snippet')?.text.trim() ?? '';
+      if (title.isNotEmpty && href.startsWith('http')) {
+        output.add(SearchResult(title, snippet, href));
       }
-      if (results.length >= 6) break;
+      if (output.length == 6) break;
     }
-    if (results.isEmpty) {
-      return 'لم يعثر البحث على نتائج واضحة لهذا السؤال. جرّب صياغته بكلمات مختلفة.';
+    return output;
+  }
+
+  Future<List<SearchResult>> _searchBing(String query) async {
+    final uri = Uri.https('www.bing.com', '/search', {'q': query});
+    final response = await http.get(uri, headers: {
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml',
+    }).timeout(const Duration(seconds: 15));
+    if (response.statusCode != 200) throw Exception('Bing: HTTP ${response.statusCode}');
+    final doc = html_parser.parse(utf8.decode(response.bodyBytes));
+    final output = <SearchResult>[];
+    for (final item in doc.querySelectorAll('li.b_algo')) {
+      final link = item.querySelector('h2 a');
+      final title = link?.text.trim() ?? '';
+      final href = link?.attributes['href'] ?? '';
+      final snippet = item.querySelector('.b_caption p')?.text.trim() ??
+          item.querySelector('p')?.text.trim() ?? '';
+      if (title.isNotEmpty && href.startsWith('http')) {
+        output.add(SearchResult(title, snippet, href));
+      }
+      if (output.length == 6) break;
     }
-    return 'هذه نتائج البحث على الإنترنت:\n\n${results.join('\n\n')}\n\nالإجابة مبنية على مقتطفات نتائج البحث؛ افتح الروابط للتحقق من التفاصيل الكاملة.';
+    return output;
+  }
+
+  Future<String> searchWeb(String query) async {
+    final errors = <String>[];
+    // Requests go directly from the phone to public search websites.
+    // No private backend, hosting, or paid API key is used.
+    for (final provider in <Future<List<SearchResult>> Function()>[
+      () => _searchDuckDuckGo(query),
+      () => _searchBing(query),
+    ]) {
+      try {
+        final results = await provider();
+        if (results.isNotEmpty) {
+          return 'نتائج البحث المباشر على الإنترنت:\n\n${results.asMap().entries.map((entry) {
+            final r = entry.value;
+            return '${entry.key + 1}. ${r.title}\n${r.snippet}\n${r.url}';
+          }).join('\n\n')}\n\nهذه مقتطفات من محرك البحث. افتح المصدر للتحقق من التفاصيل الكاملة.';
+        }
+        errors.add('لم يُرجع المحرك نتائج.');
+      } catch (e) {
+        errors.add(e.toString());
+      }
+    }
+    return 'لم أتمكن من جلب نتائج البحث من الهاتف حالياً. قد يكون أحد محركات البحث غير متاح على شبكتك أو يمنع الطلبات المباشرة.\n\nتفاصيل الاتصال: ${errors.join(' | ')}\n\nجرّب شبكة أخرى أو أعد المحاولة لاحقاً.';
   }
 
   Future<void> send() async {
@@ -101,7 +149,7 @@ class _ChatScreenState extends State<ChatScreen> {
     } else {
       try {
         answer = await searchWeb(text);
-        usedWeb = answer.startsWith('هذه نتائج البحث');
+        usedWeb = answer.startsWith('نتائج البحث المباشر');
       } catch (e) {
         answer = 'تعذر تنفيذ البحث الآن. تحقق من اتصال الإنترنت وحاول مرة أخرى.\n\n$e';
       }
@@ -163,7 +211,7 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Row(children: [
             const Icon(Icons.bolt, color: Color(0xFF38D9C5), size: 19),
             const SizedBox(width: 8),
-            Expanded(child: Text(webEnabled ? 'الإجابة من نتائج البحث على الإنترنت' : 'الإجابة من نتائج البحث على الإنترنت',
+            Expanded(child: Text('بحث مباشر من الهاتف دون خادم خاص',
               style: const TextStyle(fontSize: 12, color: Colors.white70))),
             Container(width: 7, height: 7, decoration: const BoxDecoration(
               color: Color(0xFF38D9C5), shape: BoxShape.circle)),
