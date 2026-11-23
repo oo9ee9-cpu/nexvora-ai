@@ -392,15 +392,15 @@ class _ChatScreenState extends State<ChatScreen> {
         title: Text(editIndex == null ? 'إضافة اتصال API' : 'تعديل اتصال API'),
         content: SizedBox(width: 420, child: Form(key: formKey, child: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextFormField(controller: name, decoration: const InputDecoration(labelText: 'اسم المزود (مثلاً Gemini)'),
+            TextFormField(controller: name, decoration: InputDecoration(labelText: 'اسم المزود (مثلاً Gemini)'),
               validator: (v) => v == null || v.trim().isEmpty ? 'أدخل الاسم' : null),
-            TextFormField(controller: endpoint, decoration: const InputDecoration(labelText: 'رابط Chat Completions الكامل'),
+            TextFormField(controller: endpoint, decoration: InputDecoration(labelText: 'رابط Chat Completions الكامل'),
               keyboardType: TextInputType.url,
               validator: (v) => Uri.tryParse(v ?? '')?.hasScheme == true ? null : 'أدخل رابطاً صحيحاً يبدأ بـ https://'),
-            TextFormField(controller: model, decoration: const InputDecoration(labelText: 'اسم النموذج'),
+            TextFormField(controller: model, decoration: InputDecoration(labelText: 'اسم النموذج'),
               validator: (v) => v == null || v.trim().isEmpty ? 'أدخل اسم النموذج' : null),
             TextFormField(controller: key, obscureText: true,
-              decoration: const InputDecoration(labelText: 'مفتاح API')),
+              decoration: InputDecoration(labelText: 'مفتاح API')),
             const SizedBox(height: 8),
             const Text('يدعم هذا النموذج واجهات OpenAI Chat Completions المتوافقة. بعض مزودي API يحتاجون تنسيقاً خاصاً ولن يعملوا بهذا الاتصال العام.',
               style: TextStyle(fontSize: 12, color: Colors.white60)),
@@ -470,7 +470,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
             if (profiles.isNotEmpty) DropdownButtonFormField<int>(
               value: selectedApi.clamp(0, profiles.length - 1).toInt(),
-              decoration: const InputDecoration(labelText: 'المزود النشط'),
+              decoration: InputDecoration(labelText: 'المزود النشط'),
               items: profiles.asMap().entries.map((e) =>
                 DropdownMenuItem(value: e.key, child: Text('${e.value.name} — ${e.value.model}'))).toList(),
               onChanged: (v) {
@@ -681,7 +681,7 @@ class _ChatScreenState extends State<ChatScreen> {
               child: TextField(
                 controller: controller, minLines: 1, maxLines: 5,
                 textInputAction: enterToSend ? TextInputAction.send : TextInputAction.newline, onSubmitted: (_) { if (enterToSend) send(); },
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   hintText: 'اكتب رسالتك...', hintStyle: TextStyle(color: lightTheme ? Colors.black38 : Colors.white38, fontSize: 13),
                   border: InputBorder.none, contentPadding: EdgeInsets.symmetric(horizontal: 18, vertical: 13)),
               ),
