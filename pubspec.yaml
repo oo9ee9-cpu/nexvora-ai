@@ -1,7 +1,7 @@
 name: nexvora_ai
 description: NEXVORA AI - Arabic AI chat application
 publish_to: "none"
-version: 1.0.1+2
+version: 1.0.2+3
 environment:
   sdk: ">=3.3.0 <4.0.0"
 dependencies:
@@ -9,6 +9,8 @@ dependencies:
     sdk: flutter
   http: ^1.2.2
   html: ^0.15.6
+  flutter_secure_storage: ^9.2.2
+  shared_preferences: ^2.3.3
 dev_dependencies:
   flutter_test:
     sdk: flutter
